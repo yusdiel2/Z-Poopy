@@ -232,27 +232,11 @@ local colBack = Color(0,0,0)
 
 local radialGap = 10
 
-local jobColor = Color(160, 0, 191)
-
-local function GetJob(ply)
-	local job = ply.Profession or ply.profession or ply.job or ply.Job or ply:GetNetVar("Profession") or ply:GetNetVar("profession") or ply:GetNetVar("job")
-	if istable(job) then job = job.name or job.Name end
-	if isstring(job) and job != "" then return job end
-end
-
-local function Capitalize(str)
-	return (string.gsub(string.lower(str), "(%a)([%w']*)", function(first, rest)
-		return string.upper(first) .. rest
-	end))
-end
-
 local surface, draw, hook, IsColor, IsValid, math, input = surface, draw, hook, IsColor, IsValid, math, input
 local function CreateRadialMenu(options_arg, bAutoClose)
 	local sizeX, sizeY = ScrW(), ScrH()
 	hg.radialOptions = {}
 	local paining = lply.organism and lply.organism.pain and (lply.organism.pain > 100 or lply.organism.brain > 0.2) or false
-	local job = GetJob(lply)
-	local jobName = job and Capitalize(job)
 	
 	if !options_arg then
 		local functions = hook.GetTable()["radialOptions"]
@@ -466,8 +450,6 @@ local function CreateRadialMenu(options_arg, bAutoClose)
 			local lines = {}
 			if name != "" then table.insert(lines, {name, "HomigradFontLarge", col, 2}) end
 			if roleName != "" then table.insert(lines, {roleName, "HomigradFont", lply.role.color or Color(0, 122, 192), 2}) end
-			if jobName then table.insert(lines, {jobName, "HomigradFontMedium", jobColor, 1}) end
-
 			local spacing = scrH * 0.01
 			local totalH, maxW = -spacing, 0
 			for _, l in ipairs(lines) do
