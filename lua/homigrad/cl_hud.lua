@@ -152,30 +152,54 @@ hook.Add("HUDPaint", "homigrad-dev", function()
 end)
 
 --draw.SimpleText(lply:Health(),"HomigradFontBig",100,h - 50,white,TEXT_ALIGN_CENTER,TEXT_ALIGN_CENTER)
-function draw.CirclePart(x, y, radius, seg, parts, pos)
-	local cir = {}
-	table.insert(cir, {
-		x = x,
-		y = y,
-		u = 0.5,
-		v = 0.5
-	})
+local function CirclePoint(x, y, radius, a)
+	return {
+		x = x + math.sin(a) * radius,
+		y = y + math.cos(a) * radius,
+		u = math.sin(a) / 2 + 0.5,
+		v = math.cos(a) / 2 + 0.5
+	}
+end
 
-	for i = 0, seg do
-		local a = math.rad((i / seg) * -360 / parts - pos * 360 / parts) + math.pi
-		table.insert(cir, {
-			x = x + math.sin(a) * radius,
-			y = y + math.cos(a) * radius,
-			u = math.sin(a) / 2 + 0.5,
-			v = math.cos(a) / 2 + 0.5
-		})
-		--draw.DrawText("asd","HomigradFontBig",x + math.sin(a) * radius,y + math.cos(a) * radius)
+function draw.CirclePart(x, y, radius, seg, parts, pos, gap, inner)
+	local d = (parts > 1 and gap or 0) / 2
+	inner = inner or 0
+
+	local partAng = math.rad(360 / parts)
+	local startAng = math.pi - pos * partAng
+	local endAng = startAng - partAng
+
+	local outerOff = d > 0 and math.asin(math.min(d / math.max(radius, 1), 1)) or 0
+	local innerOff = d > 0 and math.asin(math.min(d / math.max(inner, 1), 1)) or 0
+
+	render.PushFilterMin(TEXFILTER.ANISOTROPIC)
+
+	if inner > 0 then
+		if radius > inner then
+			for i = 0, seg - 1 do
+				local t1, t2 = i / seg, (i + 1) / seg
+
+				surface.DrawPoly({
+					CirclePoint(x, y, inner, Lerp(t1, startAng - innerOff, endAng + innerOff)),
+					CirclePoint(x, y, radius, Lerp(t1, startAng - outerOff, endAng + outerOff)),
+					CirclePoint(x, y, radius, Lerp(t2, startAng - outerOff, endAng + outerOff)),
+					CirclePoint(x, y, inner, Lerp(t2, startAng - innerOff, endAng + innerOff))
+				})
+			end
+		end
+	else
+		local cir = {}
+		local apex = d > 0 and d / math.sin(partAng / 2) or 0
+
+		table.insert(cir, CirclePoint(x, y, apex, (startAng + endAng) / 2))
+
+		for i = 0, seg do
+			table.insert(cir, CirclePoint(x, y, radius, Lerp(i / seg, startAng - outerOff, endAng + outerOff)))
+		end
+
+		surface.DrawPoly(cir)
 	end
 
-	--local a = math.rad(0)
-	--table.insert(cir, {x = x + math.sin(a) * radius, y = y + math.cos(a) * radius, u = math.sin(a) / 2 + 0.5, v = math.cos(a) / 2 + 0.5})
-	render.PushFilterMin(TEXFILTER.ANISOTROPIC)
-	surface.DrawPoly(cir)
 	render.PopFilterMin()
 end
 
@@ -205,11 +229,30 @@ local taitorCol = Color(155,0,0)
 local menuPanel
 
 local colBack = Color(0,0,0)
+
+local radialGap = 10
+
+local jobColor = Color(160, 0, 191)
+
+local function GetJob(ply)
+	local job = ply.Profession or ply.profession or ply.job or ply.Job or ply:GetNetVar("Profession") or ply:GetNetVar("profession") or ply:GetNetVar("job")
+	if istable(job) then job = job.name or job.Name end
+	if isstring(job) and job != "" then return job end
+end
+
+local function Capitalize(str)
+	return (string.gsub(string.lower(str), "(%a)([%w']*)", function(first, rest)
+		return string.upper(first) .. rest
+	end))
+end
+
 local surface, draw, hook, IsColor, IsValid, math, input = surface, draw, hook, IsColor, IsValid, math, input
 local function CreateRadialMenu(options_arg, bAutoClose)
 	local sizeX, sizeY = ScrW(), ScrH()
 	hg.radialOptions = {}
 	local paining = lply.organism and lply.organism.pain and (lply.organism.pain > 100 or lply.organism.brain > 0.2) or false
+	local job = GetJob(lply)
+	local jobName = job and Capitalize(job)
 	
 	if !options_arg then
 		local functions = hook.GetTable()["radialOptions"]
@@ -269,6 +312,7 @@ local function CreateRadialMenu(options_arg, bAutoClose)
 	
 	local sizePan = 0
 	local optionSelected = {}
+	local rowSelected = {}
 	menuPanel.Paint = function(self, w, h)
 		local x, y = input.GetCursorPos()
 		x = x - sizeX / 2
@@ -288,34 +332,41 @@ local function CreateRadialMenu(options_arg, bAutoClose)
 
 		sizePan = LerpFT( menuPanel:GetAlpha() > 100 and 0.05 or 0.25,sizePan,(menuPanel:GetAlpha()/255))
 		local viewLerp = Lerp(math.ease.OutExpo(sizePan),0,1)
+		local r = scrH * (options_arg ~= nil and 0.4 or 0.45) * viewLerp
+		local hole = r * 0.15
 		for num, option in ipairs(options) do
 			local num = num - 1
 
-			local r = scrH * (options_arg ~= nil and 0.4 or 0.45) * viewLerp
 			local partDeg = 360 / #options
 			local sqrt = math.sqrt(x ^ 2 + y ^ 2)
-			isMouseOnRadial = sqrt <= r and sqrt > 4
+			isMouseOnRadial = sqrt <= r and sqrt > math.max(hole, 4)
 			isMouseIntersecting = isMouseOnRadial and deg > num * partDeg and deg < (num + 1) * partDeg
 			if isMouseIntersecting then current_option = num + 1 end
 			if sqrt > 0 and current_option > 0 and num and !intersect_xyPartDeg then return end
 
 			optionSelected[num] = optionSelected[num] or 0
 			optionSelected[num] = LerpFT(0.1, optionSelected[num], isMouseIntersecting and 1 or 0)
+			local pop = 1 + 0.1 * optionSelected[num]
 
 			if option[3] then --// Multibutton
-				surface.SetMaterial(matHuy)
-				surface.SetDrawColor(isMouseIntersecting and colBlack or colBlack)
-				draw.CirclePart(w / 2, h / 2, r, 40, #options, num)
 				local count = #option[4]
 				
-				local selectedPart = count - (math.floor((r - sqrt) / (r / count)))
+				local band = (r - hole) / count
+
+				local selectedPart = math.Clamp(count - math.floor((r - sqrt) / band), 1, count)
 				
 				current_option_select = selectedPart
 				for i, opt in pairs(option[4]) do
-					local selected = selectedPart == i
+					rowSelected[num] = rowSelected[num] or {}
+					rowSelected[num][i] = LerpFT(0.1, rowSelected[num][i] or 0, (selectedPart == i and isMouseIntersecting) and 1 or 0)
+
+					local drawBand = (r * pop - hole) / count
+					local rowInner = hole + drawBand * (i - 1) + (i > 1 and radialGap / 2 or 0)
+					local rowOuter = hole + drawBand * i - (i < count and radialGap / 2 or 0)
+
 					surface.SetMaterial(matHuy)
-					surface.SetDrawColor((selected and isMouseIntersecting) and colWhiteTransparent or colTransparent)
-					draw.CirclePart(w / 2, h / 2, r * (i / count), 40, #options, num)
+					surface.SetDrawColor(colWhiteTransparent:Lerp(options_arg ~= nil and colOption or colBlack, 1 - rowSelected[num][i]))
+					draw.CirclePart(w / 2, h / 2, rowOuter, 40, #options, num, radialGap, rowInner)
 					local a = -partDeg * num - partDeg / 2
 					a = math.rad(a) + math.pi
 
@@ -325,7 +376,41 @@ local function CreateRadialMenu(options_arg, bAutoClose)
 						math.randomseed(os.time())
 					end
 
-					draw.DrawText(opt, "HomigradFont", scrW / 2 + math.sin(a) * r * (i / count - 0.5 / count), scrH / 2 + math.cos(a) * r * (i / count - 0.5 / count), colWhite, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+					local rowX = scrW / 2 + math.sin(a) * (hole + drawBand * (i - 0.5))
+					local rowY = scrH / 2 + math.cos(a) * (hole + drawBand * (i - 0.5))
+
+					surface.SetFont("HomigradFont")
+					local textW, textH = surface.GetTextSize(opt)
+					local textScale = 1
+
+					if #options > 1 then
+						local halfPart = math.rad(partDeg) / 2
+						local rowR = hole + drawBand * (i - 0.5)
+						local slack = math.max(rowR * math.sin(halfPart) - radialGap / 2 - 4, 0)
+
+						for side = -1, 1, 2 do
+							local b = a + side * halfPart
+							local nx, ny = math.cos(b), -math.sin(b)
+
+							for sx = -1, 1, 2 do
+								for sy = -1, 1, 2 do
+									local t = -side * (nx * sx * textW / 2 + ny * sy * textH / 2)
+									if t < 0 then textScale = math.min(textScale, slack / -t) end
+								end
+							end
+						end
+
+						textScale = math.max(textScale, 0.4)
+					end
+
+					local m = Matrix()
+					m:Translate(Vector(rowX, rowY, 0))
+					m:Scale(Vector(textScale, textScale, 1))
+					m:Translate(Vector(-rowX, -rowY, 0))
+
+					cam.PushModelMatrix(m, true)
+					draw.DrawText(opt, "HomigradFont", rowX, rowY - textH / 2, colWhite, TEXT_ALIGN_CENTER)
+					cam.PopModelMatrix()
 				end
 
 				continue
@@ -347,7 +432,7 @@ local function CreateRadialMenu(options_arg, bAutoClose)
 				end
 			end
 
-			draw.CirclePart(w / 2, h / 2, r * (1 + 0.1 * optionSelected[num]), 30, #options, num)
+			draw.CirclePart(w / 2, h / 2, r * pop, 30, #options, num, radialGap, hole)
 			local a = -partDeg * num - partDeg / 2
 			a = math.rad(a) + math.pi
 
@@ -358,8 +443,8 @@ local function CreateRadialMenu(options_arg, bAutoClose)
 
 				surface.SetMaterial(option[5])
 				surface.SetDrawColor(color_white)
-				local sizeW = scrW / 2.25 + math.sin(a) * r * 0.7
-				local sizeH = scrH / 2.2 + math.cos(a) * r * 0.7
+				local sizeW = scrW / 2.25 + math.sin(a) * r * pop * 0.7
+				local sizeH = scrH / 2.2 + math.cos(a) * r * pop * 0.7
 		
 				surface.DrawTexturedRect(sizeW, sizeH, scrW * 0.1, scrH * 0.1)
 			else
@@ -370,16 +455,45 @@ local function CreateRadialMenu(options_arg, bAutoClose)
 					txt = hg.get_status_message(ply)
 					math.randomseed(os.time())
 				end
-				draw.DrawText(txt, "HomigradFont", scrW / 2 + math.sin(a) * r * 0.75, scrH / 2 + math.cos(a) * r * 0.75, colWhite, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+				draw.DrawText(txt, "HomigradFont", scrW / 2 + math.sin(a) * r * pop * 0.75, scrH / 2 + math.cos(a) * r * pop * 0.75, colWhite, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 			end
 		end
-		if !paining then
-			draw.SimpleText(lply:GetPlayerName(),"HomigradFontGigantoNormous",scrW * 0.0215* viewLerp,scrH * 0.042, colBack, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-			draw.SimpleText( ( (lply.role and lply.role.name) or ""),"HomigradFontGigantoNormous" ,scrW * 0.0215 * viewLerp,scrH * 0.098, colBack, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-
+		if !paining and lply:Alive() and lply:Team() != TEAM_SPECTATOR and lply:GetObserverMode() == OBS_MODE_NONE then
+			local name = lply:GetPlayerName()
+			local roleName = (lply.role and lply.role.name) or ""
 			local col = lply:GetPlayerColor():ToColor()
-			draw.SimpleText(lply:GetPlayerName(),"HomigradFontGigantoNormous",scrW * 0.02 * viewLerp,scrH * 0.04, col, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-			draw.SimpleText( ( (lply.role and lply.role.name) or ""),"HomigradFontGigantoNormous" ,scrW * 0.02 * viewLerp,scrH * 0.095, lply.role and lply.role.color or incoentCol, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+
+			local lines = {}
+			if name != "" then table.insert(lines, {name, "HomigradFontLarge", col, 2}) end
+			if roleName != "" then table.insert(lines, {roleName, "HomigradFont", lply.role.color or Color(0, 122, 192), 2}) end
+			if jobName then table.insert(lines, {jobName, "HomigradFontMedium", jobColor, 1}) end
+
+			local spacing = scrH * 0.01
+			local totalH, maxW = -spacing, 0
+			for _, l in ipairs(lines) do
+				surface.SetFont(l[2])
+				l.w, l.h = surface.GetTextSize(l[1])
+				totalH = totalH + l.h + spacing
+				maxW = math.max(maxW, l.w)
+			end
+
+			local scale = math.min(1, hole * 1.8 / math.max(math.sqrt(maxW ^ 2 + totalH ^ 2), 1))
+
+			local cx, cy = scrW / 2, scrH / 2
+
+			local m = Matrix()
+			m:Translate(Vector(cx, cy, 0))
+			m:Scale(Vector(scale, scale, 1))
+			m:Translate(Vector(-cx, -cy, 0))
+
+			cam.PushModelMatrix(m, true)
+			local textY = cy - totalH / 2 - totalH * 0.04
+			for _, l in ipairs(lines) do
+				draw.SimpleText(l[1], l[2], cx + l[4], textY + l.h / 2 + l[4], colBack, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+				draw.SimpleText(l[1], l[2], cx, textY + l.h / 2, l[3], TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+				textY = textY + l.h + spacing
+			end
+			cam.PopModelMatrix()
 			-- какой же тут говнокод все же...
 			-- local walkBtn = input.LookupBinding("+walk") or "BIND YOUR +WALK KEY PLEASE. WRITE \"bind alt +walk\" IN CONSOLE FOR THE LOVE OF GOD"
 			-- draw.SimpleText(walkBtn .. " | Misc", "HomigradFont", scrW * (0.981 + (0.04 * (1-viewLerp))),scrH * 0.9615, colBack, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
