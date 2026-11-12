@@ -1,4 +1,3 @@
-
 include( "ai_translations.lua" )
 include( "sh_anim.lua" )
 include( "shared.lua" )
@@ -56,9 +55,6 @@ function SWEP:DrawWeaponSelection( x, y, wide, tall, alpha )
 	-- Draw that mother
 	surface.DrawTexturedRect( x + fsin, y - fsin,  wide - fsin * 2 , ( wide / 2 ) + fsin )
 
-	-- Draw weapon info box
-	self:PrintWeaponInfo( x + wide + 20, y + tall * 0.95, alpha )
-
 end
 
 --[[---------------------------------------------------------
@@ -70,6 +66,7 @@ SWEP.InfoMarkup = nil
 local title_color = "<color=230,230,230,255>"
 local text_color = "<color=180,180,180>"
 function SWEP:PrintWeaponInfo( x, y, alpha )
+    local WS = hg.WeaponSelector
     if ( self.DrawWeaponInfoBox == false ) then return end
 
     if ( self.InfoMarkup == nil ) then
@@ -85,8 +82,8 @@ function SWEP:PrintWeaponInfo( x, y, alpha )
         self.InfoMarkup = markup.Parse( str, 250 )
     end
 
-    x = ScrW()*0.85   
-    y = ScrH()*0.055
+    x = WS.InfoX + 5
+    y = WS.InfoY + 6
 
     --surface.SetDrawColor( 0, 0, 0, alpha-25 )
     --surface.SetTexture( self.SpeechBubbleLid )
