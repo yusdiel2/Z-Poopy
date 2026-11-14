@@ -1,3 +1,4 @@
+--
 hg = hg or {}
 hg.WeaponSelector = hg.WeaponSelector or {}
 local WS = hg.WeaponSelector
@@ -181,6 +182,7 @@ function WS.WeaponSelectorDraw( ply )
         cursor = cursor + p * (scrW * 0.1 + scrW * 0.008)
 
         local y = scrH * 0.055
+        local restY = y
 
         WS.Transparent = baseTransparent * p
 
@@ -298,11 +300,13 @@ function WS.WeaponSelectorDraw( ply )
                     render.SetScissorRect( 0, 0, 0, 0, false )
 
                     y = y + h
+                    restY = restY + scrH * 0.028 * p * it.p
                 else
                     local h = (it.h or scrH * 0.028) * p
                     DrawCollapsed( x, y, scrW * 0.1, h, it.name or "", baseTransparent * p )
 
                     y = y + h
+                    restY = restY + h
                 end
             end
         else
@@ -310,10 +314,11 @@ function WS.WeaponSelectorDraw( ply )
                 local h = (it.lastH or scrH * 0.028) * p
                 DrawCollapsed( x, y, scrW * 0.1, h, it.name or "", baseTransparent * p )
                 y = y + h
+                restY = restY + h
             end
         end
 
-        cols[#cols + 1] = { idx = i, x = x, bottom = y }
+        cols[#cols + 1] = { idx = i, x = x, bottom = y, restBottom = restY }
         WS.Transparent = baseTransparent
     end
 
@@ -326,7 +331,7 @@ function WS.WeaponSelectorDraw( ply )
                 local overlapX = math.min( c.x + scrW * 0.1, WS.InfoX + blurbW ) - math.max( c.x, WS.InfoX )
                 local weight = math.Clamp( overlapX / (scrW * 0.02), 0, 1 )
                 weight = weight * weight * (3 - 2 * weight)
-                floorTarget = math.max( floorTarget, weight * (c.bottom + scrH * 0.008) )
+                floorTarget = math.max( floorTarget, weight * (c.restBottom + scrH * 0.008) )
             end
         end
 
