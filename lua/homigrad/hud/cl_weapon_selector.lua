@@ -23,7 +23,8 @@ WS.SlotItems = {}
 WS.InfoSlot = nil
 WS.InfoWep = nil
 WS.InfoGlide = 0
-WS.InfoDodge = 0
+WS.InfoFloor = 0
+WS.Seen = WS.Seen or setmetatable({}, { __mode = "k" })
 WS.InfoAlpha = 0
 WS.InfoX = 0
 WS.InfoY = 0
@@ -41,12 +42,22 @@ end
 
 function WS.GetWeaponTable( ply )
     if not IsValid( ply ) or not ply:Alive() then return end
-    local WeaponsGet = ply:GetWeapons()
+    local WeaponsGet = {}
+    for _, wep in ipairs( ply:GetWeapons() ) do
+        WS.Seen[wep] = WS.Seen[wep] or CurTime()
+        if wep.Slot ~= nil or CurTime() - WS.Seen[wep] > 0.3 then
+            WeaponsGet[#WeaponsGet + 1] = wep
+        end
+    end
     local FormatedTable = {
         [0] = {}, [1] = {}, [2] = {}, [3] = {}, [4] = {}, [5] = {},
     }
 
-    table.sort(WeaponsGet, function(a, b) return (a.SlotPos or 0) > (b.SlotPos or 0) end)
+    table.sort(WeaponsGet, function(a, b)
+        local sa, sb = a.SlotPos or 0, b.SlotPos or 0
+        if sa ~= sb then return sa > sb end
+        return a:EntIndex() < b:EntIndex()
+    end)
 
     for k,wep in ipairs(WeaponsGet) do
         local tTbl = FormatedTable[wep.Slot or 0]
@@ -76,7 +87,7 @@ end
 
 local function ResetState()
     WS.InfoSlot = nil
-    WS.InfoDodge = 0
+    WS.InfoFloor = 0
     WS.SlotPres = {}
     WS.SlotItems = {}
     WS.TrackedWep = nil
@@ -191,6 +202,8 @@ function WS.WeaponSelectorDraw( ply )
             local known = {}
             for _, it in ipairs( items ) do known[it.wep] = it end
 
+            local firstFill = #items == 0
+
             for idx, wep in ipairs( current ) do
                 if not known[wep] then
                     local pos = 1
@@ -200,16 +213,24 @@ function WS.WeaponSelectorDraw( ply )
                             if it.wep == prevWep then pos = k + 1 break end
                         end
                     end
-                    local it = { wep = wep, p = 1 }
+                    local it = { wep = wep, p = firstFill and 1 or 0 }
                     table.insert( items, pos, it )
                     known[wep] = it
                 end
             end
 
+            local liveSlots, ordered = {}, {}
+            for k, it in ipairs( items ) do
+                if inCurrent[it.wep] then liveSlots[#liveSlots + 1] = k end
+            end
+            for _, wep in ipairs( current ) do ordered[#ordered + 1] = known[wep] end
+            for n, k in ipairs( liveSlots ) do items[k] = ordered[n] end
+
             for k = #items, 1, -1 do
                 local it = items[k]
                 if inCurrent[it.wep] then
-                    it.p = 1
+                    it.p = LerpFT( 0.2, it.p, 1 )
+                    if it.p > 0.99 then it.p = 1 end
                     it.name = WS.GetPrintName( it.wep )
                 else
                     it.p = LerpFT( 0.2, it.p, 0 )
@@ -228,7 +249,7 @@ function WS.WeaponSelectorDraw( ply )
                     WS.Anim[wep] = expand
                     local fullH = Lerp( expand, scrH * 0.028, scrH * 0.12 )
                     it.lastH = fullH
-                    local h = fullH * p
+                    local h = fullH * p * it.p
 
                     draw.RoundedBox( 0, x, y, scrW * 0.1, h, ColorAlpha(color_black, WS.Transparent * 205) )
                     draw.RoundedBox( 0, x, y + math.max( h - 2, 0 ), scrW * 0.1, math.min( h, 2 ), ColorAlpha(color_black, WS.Transparent * 205) )
@@ -247,6 +268,7 @@ function WS.WeaponSelectorDraw( ply )
                             WS.InfoAlpha = 0
                             WS.InfoWep = wep
                             WS.InfoGlide = 0
+                            WS.InfoDodgeSnap = true
                         elseif WS.InfoWep ~= wep then
                             WS.InfoGlide = WS.InfoY - cornerY
                             WS.InfoWep = wep
@@ -298,15 +320,23 @@ function WS.WeaponSelectorDraw( ply )
     if infoWep and infoWep.PrintWeaponInfo then
         local blurbW = 260
         local top = WS.InfoY
-        local need = 0
+        local floorTarget = 0
         for _, c in ipairs( cols ) do
-            if c.idx ~= infoCol and c.x < WS.InfoX + blurbW and c.x + scrW * 0.1 > WS.InfoX and c.bottom > top then
-                need = math.max( need, c.bottom + scrH * 0.008 )
+            if c.idx ~= infoCol then
+                local overlapX = math.min( c.x + scrW * 0.1, WS.InfoX + blurbW ) - math.max( c.x, WS.InfoX )
+                local weight = math.Clamp( overlapX / (scrW * 0.02), 0, 1 )
+                weight = weight * weight * (3 - 2 * weight)
+                floorTarget = math.max( floorTarget, weight * (c.bottom + scrH * 0.008) )
             end
         end
-        WS.InfoDodge = LerpFT( 0.2, WS.InfoDodge, math.max( need - top, 0 ) )
 
-        WS.InfoY = top + WS.InfoDodge
+        if WS.InfoDodgeSnap then
+            WS.InfoFloor = floorTarget
+            WS.InfoDodgeSnap = false
+        end
+        WS.InfoFloor = math.max( LerpFT( 0.2, WS.InfoFloor, floorTarget ), top )
+
+        WS.InfoY = WS.InfoFloor
         infoWep:PrintWeaponInfo( WS.InfoX, WS.InfoY, WS.Transparent * 255 * WS.InfoAlpha )
         WS.InfoY = top
     end
