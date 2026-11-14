@@ -23,6 +23,7 @@ WS.SlotItems = {}
 WS.InfoSlot = nil
 WS.InfoWep = nil
 WS.InfoGlide = 0
+WS.InfoDodge = 0
 WS.InfoAlpha = 0
 WS.InfoX = 0
 WS.InfoY = 0
@@ -75,6 +76,7 @@ end
 
 local function ResetState()
     WS.InfoSlot = nil
+    WS.InfoDodge = 0
     WS.SlotPres = {}
     WS.SlotItems = {}
     WS.TrackedWep = nil
@@ -151,6 +153,8 @@ function WS.WeaponSelectorDraw( ply )
 
     local cursor = scrW / 2 - total / 2
     local infoWep
+    local infoCol
+    local cols = {}
 
     for i = 0, 5 do
         local p = pres[i]
@@ -252,6 +256,7 @@ function WS.WeaponSelectorDraw( ply )
                         WS.InfoY = cornerY + WS.InfoGlide
                         WS.InfoAlpha = LerpFT( 0.2, WS.InfoAlpha, 1 )
                         infoWep = wep
+                        infoCol = i
 
                         if wep.DrawWeaponSelection then
                             render.SetScissorRect( math.floor( x ), math.floor( y ), math.ceil( x + scrW * 0.1 ), math.ceil( y + h ), true )
@@ -286,11 +291,24 @@ function WS.WeaponSelectorDraw( ply )
             end
         end
 
+        cols[#cols + 1] = { idx = i, x = x, bottom = y }
         WS.Transparent = baseTransparent
     end
 
     if infoWep and infoWep.PrintWeaponInfo then
+        local blurbW = 260
+        local top = WS.InfoY
+        local need = 0
+        for _, c in ipairs( cols ) do
+            if c.idx ~= infoCol and c.x < WS.InfoX + blurbW and c.x + scrW * 0.1 > WS.InfoX and c.bottom > top then
+                need = math.max( need, c.bottom + scrH * 0.008 )
+            end
+        end
+        WS.InfoDodge = LerpFT( 0.2, WS.InfoDodge, math.max( need - top, 0 ) )
+
+        WS.InfoY = top + WS.InfoDodge
         infoWep:PrintWeaponInfo( WS.InfoX, WS.InfoY, WS.Transparent * 255 * WS.InfoAlpha )
+        WS.InfoY = top
     end
 end
 
