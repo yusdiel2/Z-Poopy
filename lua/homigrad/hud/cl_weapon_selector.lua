@@ -73,14 +73,46 @@ local function DrawCollapsed( x, y, w, h, name, alpha )
     WS.Transparent = old
 end
 
+local function ResetState()
+    WS.InfoSlot = nil
+    WS.SlotPres = {}
+    WS.SlotItems = {}
+    WS.TrackedWep = nil
+end
+
+local function FindWeapon( Weapons, wep )
+    for s = 0, 5 do
+        for pos = 0, #Weapons[s] do
+            if Weapons[s][pos] == wep then return s, pos end
+        end
+    end
+end
+
+local function FindNearest( Weapons, slot, pos )
+    for d = 0, 5 do
+        for _, s in ipairs( d == 0 and { slot } or { slot - d, slot + d } ) do
+            local list = Weapons[s]
+            if list and table.Count( list ) > 0 then
+                local best, bestDist
+                for p in pairs( list ) do
+                    local dist = math.abs( p - pos )
+                    if not bestDist or dist < bestDist then best, bestDist = p, dist end
+                end
+                return s, best
+            end
+        end
+    end
+end
+
 function WS.WeaponSelectorDraw( ply )
-    if not IsValid( ply ) or not ply:Alive() or GetGlobalBool("RadialInventory", false) then return end
+    if not IsValid( ply ) or not ply:Alive() or GetGlobalBool("RadialInventory", false) then
+        ResetState()
+        return
+    end
     if WS.Show < CurTime() then
         WS.SelectedSlot = WS.LastSelectedSlot
         WS.SelectedSlotPos = -1
-        WS.InfoSlot = nil
-        WS.SlotPres = {}
-        WS.SlotItems = {}
+        ResetState()
 
         return
     end
@@ -88,17 +120,18 @@ function WS.WeaponSelectorDraw( ply )
     local SelectedWep = WS.GetSelectedWeapon()
     if not IsValid(SelectedWep) then return end
 
-    if IsValid( WS.TrackedWep ) and WS.TrackedWep ~= SelectedWep then
-        for s = 0, 5 do
-            for pos = 0, #Weapons[s] do
-                if Weapons[s][pos] == WS.TrackedWep then
-                    WS.SelectedSlot, WS.SelectedSlotPos = s, pos
-                    SelectedWep = WS.TrackedWep
-                end
-            end
+    if WS.TrackedWep and WS.TrackedWep ~= SelectedWep then
+        local s, pos = FindWeapon( Weapons, WS.TrackedWep )
+        if not s then
+            s, pos = FindNearest( Weapons, WS.TrackedSlot or 0, WS.TrackedPos or 0 )
+        end
+        if s then
+            WS.SelectedSlot, WS.SelectedSlotPos = s, pos
+            SelectedWep = Weapons[s][pos]
         end
     end
     WS.TrackedWep = SelectedWep
+    WS.TrackedSlot, WS.TrackedPos = FindWeapon( Weapons, SelectedWep )
 
     WS.Transparent = LerpFT( 0.2, WS.Transparent, math.min( WS.Show - CurTime(), 1 ) )
 
@@ -108,9 +141,9 @@ function WS.WeaponSelectorDraw( ply )
     local total = 0
     for i = 0, 5 do
         local has = table.Count(Weapons[i]) > 0 and 1 or 0
-        local raw = math.Approach( WS.SlotPres[i] or has, has, FrameTime() / 0.25 )
-        WS.SlotPres[i] = raw
-        local p = raw * raw * (3 - 2 * raw)
+        local p = LerpFT( 0.2, WS.SlotPres[i] or has, has )
+        if math.abs( p - has ) < 0.01 then p = has end
+        WS.SlotPres[i] = p
         pres[i] = p
         total = total + p * (scrW * 0.1 + scrW * 0.008)
     end
@@ -121,7 +154,10 @@ function WS.WeaponSelectorDraw( ply )
 
     for i = 0, 5 do
         local p = pres[i]
-        if p <= 0 then continue end
+        if p <= 0 then
+            WS.SlotItems[i] = nil
+            continue
+        end
 
         local slotTbl = Weapons[i]
         local live = table.Count(slotTbl) > 0
@@ -186,11 +222,12 @@ function WS.WeaponSelectorDraw( ply )
                 if inCurrent[wep] then
                     local expand = LerpFT( 0.2, WS.Anim[wep] or 0, SelectedWep == wep and 1 or 0 )
                     WS.Anim[wep] = expand
-                    local h = Lerp( expand, scrH * 0.028, scrH * 0.12 )
-                    it.lastH = h
+                    local fullH = Lerp( expand, scrH * 0.028, scrH * 0.12 )
+                    it.lastH = fullH
+                    local h = fullH * p
 
                     draw.RoundedBox( 0, x, y, scrW * 0.1, h, ColorAlpha(color_black, WS.Transparent * 205) )
-                    draw.RoundedBox( 0, x, y + h - 2, scrW * 0.1, 2, ColorAlpha(color_black, WS.Transparent * 205) )
+                    draw.RoundedBox( 0, x, y + math.max( h - 2, 0 ), scrW * 0.1, math.min( h, 2 ), ColorAlpha(color_black, WS.Transparent * 205) )
 
                     if SelectedWep == wep then
                         surface.SetDrawColor( 155, 0, 0, WS.Transparent * 200 )
@@ -229,11 +266,13 @@ function WS.WeaponSelectorDraw( ply )
                         end
                     end
 
+                    render.SetScissorRect( math.floor( x ), math.floor( y ), math.ceil( x + scrW * 0.1 ), math.ceil( y + h ), true )
                     WS.DrawText( it.name, "HomigradFontSmall", x + scrW * 0.1 / 2, y + 2.5, color_white, TEXT_ALIGN_CENTER )
+                    render.SetScissorRect( 0, 0, 0, 0, false )
 
                     y = y + h
                 else
-                    local h = it.h or scrH * 0.028
+                    local h = (it.h or scrH * 0.028) * p
                     DrawCollapsed( x, y, scrW * 0.1, h, it.name or "", baseTransparent * p )
 
                     y = y + h
@@ -241,7 +280,7 @@ function WS.WeaponSelectorDraw( ply )
             end
         else
             for _, it in ipairs( items ) do
-                local h = it.lastH or scrH * 0.028
+                local h = (it.lastH or scrH * 0.028) * p
                 DrawCollapsed( x, y, scrW * 0.1, h, it.name or "", baseTransparent * p )
                 y = y + h
             end
