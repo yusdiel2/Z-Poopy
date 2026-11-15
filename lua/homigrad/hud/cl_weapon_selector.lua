@@ -18,15 +18,14 @@ WS.SelectedSlot = 0
 WS.SelectedSlotPos = 0
 
 WS.Anim = WS.Anim or setmetatable({}, { __mode = "k" })
+WS.Seen = WS.Seen or setmetatable({}, { __mode = "k" })
 WS.SlotPres = {}
 WS.SlotItems = {}
 
 WS.InfoSlot = nil
-WS.InfoWep = nil
-WS.InfoGlide = 0
-WS.InfoFloor = 0
-WS.Seen = WS.Seen or setmetatable({}, { __mode = "k" })
+WS.InfoSnap = false
 WS.InfoAlpha = 0
+WS.InfoRest = 0
 WS.InfoX = 0
 WS.InfoY = 0
 
@@ -71,6 +70,7 @@ end
 
 local scrW, scrH = ScrW(), ScrH()
 
+local AcsentColor = Color(155,0,0)
 local gradient_u = Material("vgui/gradient-d")
 
 local function DrawCollapsed( x, y, w, h, name, alpha )
@@ -88,7 +88,6 @@ end
 
 local function ResetState()
     WS.InfoSlot = nil
-    WS.InfoFloor = 0
     WS.SlotPres = {}
     WS.SlotItems = {}
     WS.TrackedWep = nil
@@ -148,6 +147,7 @@ function WS.WeaponSelectorDraw( ply )
     WS.TrackedSlot, WS.TrackedPos = FindWeapon( Weapons, SelectedWep )
 
     WS.Transparent = LerpFT( 0.2, WS.Transparent, math.min( WS.Show - CurTime(), 1 ) )
+    --draw.RoundedBox(0,(scrW / 2)-10,(scrH *0.15),20,20, color_red )
 
     local baseTransparent = WS.Transparent
 
@@ -187,6 +187,16 @@ function WS.WeaponSelectorDraw( ply )
         WS.Transparent = baseTransparent * p
 
         WS.DrawText( i + 1, "HomigradFontMedium", x + scrW * 0.1 / 2, scrH * 0.02, color_white, TEXT_ALIGN_CENTER )
+
+        --  draw.RoundedBox(
+        --      1,
+        --      x,
+        --      (scrH *0.01),
+        --      scrW * 0.1,
+        --      (scrH *0.02),
+        --      ColorAlpha(color_black,WS.Transparent*255)
+        --  )
+        --if slotTbl and table.Count(slotTbl) < 0 then continue end
 
         local items = WS.SlotItems[i] or {}
 
@@ -264,21 +274,13 @@ function WS.WeaponSelectorDraw( ply )
                         surface.SetDrawColor( 255, 0, 0, WS.Transparent * 155 )
                         surface.DrawOutlinedRect( x, y, scrW * 0.1, h, 2 )
 
-                        local cornerY = y + h + scrH * 0.004
                         if WS.InfoSlot ~= i then
                             WS.InfoSlot = i
                             WS.InfoAlpha = 0
-                            WS.InfoWep = wep
-                            WS.InfoGlide = 0
-                            WS.InfoDodgeSnap = true
-                        elseif WS.InfoWep ~= wep then
-                            WS.InfoGlide = WS.InfoY - cornerY
-                            WS.InfoWep = wep
+                            WS.InfoSnap = true
                         end
-                        WS.InfoGlide = LerpFT( 0.2, WS.InfoGlide, 0 )
                         WS.InfoX = x + scrW * 0.1 + scrW * 0.004
-                        WS.InfoY = cornerY + WS.InfoGlide
-                        WS.InfoAlpha = LerpFT( 0.2, WS.InfoAlpha, 1 )
+                        WS.InfoRest = restY + scrH * 0.12 * p * it.p + scrH * 0.004
                         infoWep = wep
                         infoCol = i
 
@@ -318,35 +320,34 @@ function WS.WeaponSelectorDraw( ply )
             end
         end
 
-        cols[#cols + 1] = { idx = i, x = x, bottom = y, restBottom = restY }
+        cols[#cols + 1] = { idx = i, x = x, restBottom = restY }
         WS.Transparent = baseTransparent
     end
 
     if infoWep and infoWep.PrintWeaponInfo then
-        local blurbW = 260
-        local top = WS.InfoY
-        local floorTarget = 0
+        local target = WS.InfoRest
         for _, c in ipairs( cols ) do
             if c.idx ~= infoCol then
-                local overlapX = math.min( c.x + scrW * 0.1, WS.InfoX + blurbW ) - math.max( c.x, WS.InfoX )
-                local weight = math.Clamp( overlapX / (scrW * 0.02), 0, 1 )
+                local overlap = math.min( c.x + scrW * 0.1, WS.InfoX + 260 ) - math.max( c.x, WS.InfoX )
+                local weight = math.Clamp( overlap / (scrW * 0.02), 0, 1 )
                 weight = weight * weight * (3 - 2 * weight)
-                floorTarget = math.max( floorTarget, weight * (c.restBottom + scrH * 0.008) )
+                target = math.max( target, weight * (c.restBottom + scrH * 0.008) )
             end
         end
 
-        if WS.InfoDodgeSnap then
-            WS.InfoFloor = floorTarget
-            WS.InfoDodgeSnap = false
+        if WS.InfoSnap then
+            WS.InfoY = target
+            WS.InfoSnap = false
+        else
+            WS.InfoY = LerpFT( 0.22, WS.InfoY, target )
         end
-        WS.InfoFloor = math.max( LerpFT( 0.2, WS.InfoFloor, floorTarget ), top )
+        WS.InfoAlpha = LerpFT( 0.2, WS.InfoAlpha, 1 )
 
-        WS.InfoY = WS.InfoFloor
         infoWep:PrintWeaponInfo( WS.InfoX, WS.InfoY, WS.Transparent * 255 * WS.InfoAlpha )
-        WS.InfoY = top
     end
 end
 
+-- Changer
 local tAcceptKeys = {
     ["slot1"] = 1,
     ["slot2"] = 2,
@@ -356,10 +357,39 @@ local tAcceptKeys = {
     ["slot6"] = 6,
 }
 
+--[[
+    Table:
+        [1]	=	Weapon [52][weapon_hands_sh]
+        [2]	=	Weapon [117][weapon_bigconsumable]
+        [3]	=	Weapon [121][weapon_handcuffs_key]
+        [4]	=	Weapon [122][weapon_handcuffs]
+        [5]	=	Weapon [123][weapon_traitor_poison1]
+        [6]	=	Weapon [124][weapon_traitor_suit]
+        [7]	=	Weapon [125][weapon_matches]
+
+    TableFormated:
+    [0]:
+		[0]	=	Weapon [126][weapon_physgun]
+		[1]	=	Weapon [52][weapon_hands_sh]
+    [1]:
+    [2]:
+    [3]:
+		[1]	=	Weapon [117][weapon_bigconsumable]
+		[2]	=	Weapon [121][weapon_handcuffs_key]
+		[3]	=	Weapon [122][weapon_handcuffs]
+		[4]	=	Weapon [123][weapon_traitor_poison1]
+		[5]	=	Weapon [125][weapon_matches]
+    [4]:
+    [5]:
+		[1]	=	Weapon [124][weapon_traitor_suit]
+--]]
+
 local function GetUpper(Weapons)
     if #LocalPlayer():GetWeapons() < 1 then return end
     WS.SelectedSlot = WS.SelectedSlot < 0 and #Weapons or WS.SelectedSlot - 1
     WS.SelectedSlotPos = Weapons[WS.SelectedSlot] and #Weapons[WS.SelectedSlot] or 0
+
+    --print(WS.SelectedSlot, WS.SelectedSlotPos)
 
     if Weapons[WS.SelectedSlot] == nil or Weapons[WS.SelectedSlot][WS.SelectedSlotPos] == nil then
         GetUpper(Weapons)
@@ -370,6 +400,8 @@ local function GetDown(Weapons)
     if #LocalPlayer():GetWeapons() < 1 then return end
     WS.SelectedSlot = WS.SelectedSlot > #Weapons and 0 or WS.SelectedSlot + 1
     WS.SelectedSlotPos = 0
+
+    --print(WS.SelectedSlot, WS.SelectedSlotPos)
 
     if Weapons[WS.SelectedSlot] == nil or Weapons[WS.SelectedSlot][WS.SelectedSlotPos] == nil then
         GetDown(Weapons)
@@ -398,6 +430,9 @@ function WS.ChangeSelectionWep( ply, key )
     if not IsValid( ply ) or not ply:Alive() or GetGlobalBool("RadialInventory", false) then return end
     if ply.organism and ply.organism.otrub then return end
     if canUseSelector( ply ) then return end
+    --print(canUseSelector( ply ))
+    --print("Table")
+    --PrintTable( WS.GetWeaponTable( ply ) )
     local iPos = tAcceptKeys[ key ]
     if iPos or key == "invnext" or key == "invprev" or key == "lastinv" then
 
@@ -405,6 +440,7 @@ function WS.ChangeSelectionWep( ply, key )
 
         WS.Show = CurTime() + 4
         WS.TrackedWep = nil
+        --print(key)
         surface.PlaySound("arc9_eft_shared/weapon_generic_rifle_spin"..math.random(10)..".ogg")
         if iPos then
             iPos = iPos - 1
@@ -414,13 +450,19 @@ function WS.ChangeSelectionWep( ply, key )
             WS.SelectedSlotPos = (Weapons[iPos] and LastSelected == iPos and WS.SelectedSlotPos + 1 > #Weapons[iPos] and 0 or math.min( WS.SelectedSlotPos + 1, #Weapons[iPos] )) or 0
             WS.SelectedSlot = iPos
             LastSelected = iPos
+            --print(WS.SelectedSlotPos)
+            --print(iPos)
+            --print( Weapons[WS.SelectedSlot][WS.SelectedSlotPos] )
         elseif key == "invprev" then
             WS.SelectedSlotPos = WS.SelectedSlotPos - 1
+            --print(WS.SelectedSlotPos)
             if Weapons[WS.SelectedSlot] and WS.SelectedSlotPos < 0  then
                 GetUpper(Weapons)
             end
+            --WS.SelectedSlot = Weapons[WS.SelectedSlot] and #Weapons[WS.SelectedSlot] > (WS.SelectedSlotPos + 1) and WS.SelectedSlot + 1 or WS.SelectedSlot + 1 > #Weapons - 1 and 0 or 0
         elseif key == "invnext" then
             WS.SelectedSlotPos = WS.SelectedSlotPos + 1
+            --print(WS.SelectedSlotPos)
             if Weapons[WS.SelectedSlot] and WS.SelectedSlotPos > #Weapons[WS.SelectedSlot] then
                 GetDown(Weapons)
             end
@@ -445,6 +487,7 @@ function WS.SetActuallyWeapon( ply, cmd )
         else
             cmd:RemoveKey(IN_ATTACK)
             cmd:RemoveKey(IN_ATTACK2)
+            --print(WS.GetSelectedWeapon())
 
             if IsValid(WS.GetSelectedWeapon()) then
                 WS.LastInv = WS.LastInv ~= ply:GetActiveWeapon() and WS.LastInv or ply:GetActiveWeapon()
@@ -477,3 +520,14 @@ local tHideElements = {
 hook.Add("HUDShouldDraw", "WeaponSelector_HUDShouldDraw", function(sElementName)
     if tHideElements[sElementName] then return false end
 end)
+
+-- Я ТАК ЗАДОЛБАЛСЯ ПРОСТО УБЕЙТЕ МЕНЯ ХАХАХАХАХАХАХАХАХАХААХАХАХАХАХАХА
+-- ПОЛЧАСА Я ПЫТАЛСЯ СДЕЛАТЬ НОРМЛАЬНОЕ ПЕРЕКЛЮЧЕНИЕ ГОВНА!!!
+-- ЗАТО ПОЛУЧИЛОСЬ!!!!
+-- УЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭЭ
+--[[
+    /\_/\
+    |_ _|
+    |   |__
+   /_|_____\ -- IT'S SO OVER
+--]]
