@@ -20,12 +20,19 @@ WS.SelectedSlotPos = 0
 WS.Anim = WS.Anim or setmetatable({}, { __mode = "k" })
 WS.Seen = WS.Seen or setmetatable({}, { __mode = "k" })
 WS.SlotPres = {}
-WS.SlotItems = {}
+WS.SlotNames = {}
+WS.ColLast = {}
+WS.ColOff = {}
+WS.ColSig = {}
+WS.ColLeave = {}
+WS.ColGrow = {}
 
 WS.InfoSlot = nil
-WS.InfoSnap = false
+WS.InfoWep = nil
+WS.InfoGlide = 0
+WS.InfoFloor = 0
+WS.InfoShown = 0
 WS.InfoAlpha = 0
-WS.InfoRest = 0
 WS.InfoX = 0
 WS.InfoY = 0
 
@@ -88,8 +95,14 @@ end
 
 local function ResetState()
     WS.InfoSlot = nil
+    WS.InfoFloor = 0
     WS.SlotPres = {}
-    WS.SlotItems = {}
+    WS.SlotNames = {}
+    WS.ColLast = {}
+    WS.ColOff = {}
+    WS.ColSig = {}
+    WS.ColLeave = {}
+    WS.ColGrow = {}
     WS.TrackedWep = nil
 end
 
@@ -147,8 +160,6 @@ function WS.WeaponSelectorDraw( ply )
     WS.TrackedSlot, WS.TrackedPos = FindWeapon( Weapons, SelectedWep )
 
     WS.Transparent = LerpFT( 0.2, WS.Transparent, math.min( WS.Show - CurTime(), 1 ) )
-    --draw.RoundedBox(0,(scrW / 2)-10,(scrH *0.15),20,20, color_red )
-
     local baseTransparent = WS.Transparent
 
     local pres = {}
@@ -171,13 +182,13 @@ function WS.WeaponSelectorDraw( ply )
     for i = 0, 5 do
         local p = pres[i]
         if p <= 0 then
-            WS.SlotItems[i] = nil
+            WS.SlotNames[i] = nil
+            WS.ColLast[i], WS.ColOff[i], WS.ColSig[i] = nil, nil, nil
+            WS.ColLeave[i], WS.ColGrow[i] = nil, nil
             continue
         end
 
         local slotTbl = Weapons[i]
-        local live = table.Count(slotTbl) > 0
-
         local x = cursor
         cursor = cursor + p * (scrW * 0.1 + scrW * 0.008)
 
@@ -188,133 +199,180 @@ function WS.WeaponSelectorDraw( ply )
 
         WS.DrawText( i + 1, "HomigradFontMedium", x + scrW * 0.1 / 2, scrH * 0.02, color_white, TEXT_ALIGN_CENTER )
 
-        --  draw.RoundedBox(
-        --      1,
-        --      x,
-        --      (scrH *0.01),
-        --      scrW * 0.1,
-        --      (scrH *0.02),
-        --      ColorAlpha(color_black,WS.Transparent*255)
-        --  )
-        --if slotTbl and table.Count(slotTbl) < 0 then continue end
-
-        local items = WS.SlotItems[i] or {}
-
-        if live then
-            local current = {}
-            local inCurrent = {}
+        if table.Count(slotTbl) > 0 then
+            local kept = {}
+            local list = {}
+            local yy = y
             for Id = 0, #slotTbl do
                 local wep = slotTbl[Id]
-                if wep then
-                    current[#current + 1] = wep
-                    inCurrent[wep] = true
+                if not wep then continue end
+
+                local expand = LerpFT( 0.2, WS.Anim[wep] or 0, SelectedWep == wep and 1 or 0 )
+                WS.Anim[wep] = expand
+                local fullH = Lerp( expand, scrH * 0.028, scrH * 0.12 )
+                local h = fullH * p
+                local ty = math.Round( yy )
+                list[#list + 1] = {
+                    wep = wep,
+                    name = WS.GetPrintName( wep ),
+                    ty = ty,
+                    hh = math.Round( yy + h ) - ty,
+                    restAbove = restY,
+                }
+                kept[#kept + 1] = { name = list[#list].name, h = fullH }
+                yy = yy + h
+                restY = restY + scrH * 0.028 * p
+            end
+            WS.SlotNames[i] = kept
+
+            local lastT = WS.ColLast[i] or {}
+            local offs = WS.ColOff[i] or {}
+            local sig = WS.ColSig[i] or {}
+            local leave = WS.ColLeave[i] or {}
+            local grow = WS.ColGrow[i] or {}
+            local present = {}
+            for _, it in ipairs( list ) do present[it.wep] = true end
+
+            local changed = #sig ~= #list
+            if not changed then
+                for k, it in ipairs( list ) do
+                    if sig[k] ~= it.wep then changed = true break end
                 end
             end
 
-            local known = {}
-            for _, it in ipairs( items ) do known[it.wep] = it end
-
-            local firstFill = #items == 0
-
-            for idx, wep in ipairs( current ) do
-                if not known[wep] then
-                    local pos = 1
-                    local prevWep = current[idx - 1]
-                    if prevWep and known[prevWep] then
-                        for k, it in ipairs( items ) do
-                            if it.wep == prevWep then pos = k + 1 break end
+            if changed then
+                for k, w in ipairs( sig ) do
+                    if not present[w] and lastT[w] then
+                        local after, before
+                        for n = k + 1, #sig do
+                            if present[sig[n]] then after = sig[n] break end
                         end
+                        for n = k - 1, 1, -1 do
+                            if present[sig[n]] then before = sig[n] break end
+                        end
+                        leave[#leave + 1] = { wep = w, name = lastT[w].name, ty = lastT[w].ty, hh = lastT[w].hh, life = 1, after = after, before = before }
                     end
-                    local it = { wep = wep, p = firstFill and 1 or 0 }
-                    table.insert( items, pos, it )
-                    known[wep] = it
                 end
             end
 
-            local liveSlots, ordered = {}, {}
-            for k, it in ipairs( items ) do
-                if inCurrent[it.wep] then liveSlots[#liveSlots + 1] = k end
-            end
-            for _, wep in ipairs( current ) do ordered[#ordered + 1] = known[wep] end
-            for n, k in ipairs( liveSlots ) do items[k] = ordered[n] end
+            local newLast, newOff, newSig, newGrow = {}, {}, {}, {}
+            for k, it in ipairs( list ) do
+                local o = offs[it.wep] or 0
+                if changed and lastT[it.wep] then o = o + (lastT[it.wep].ty - it.ty) end
+                o = LerpFT( 0.2, o, 0 )
+                if math.abs( o ) < 0.3 then o = 0 end
+                it.dy = it.ty + o
+                newOff[it.wep] = o
+                newLast[it.wep] = { ty = it.ty, hh = it.hh, name = it.name }
+                newSig[k] = it.wep
 
-            for k = #items, 1, -1 do
-                local it = items[k]
-                if inCurrent[it.wep] then
-                    it.p = LerpFT( 0.2, it.p, 1 )
-                    if it.p > 0.99 then it.p = 1 end
-                    it.name = WS.GetPrintName( it.wep )
+                local g = grow[it.wep]
+                if g == nil then g = (#sig > 0 and not lastT[it.wep]) and 0 or 1 end
+                g = LerpFT( 0.2, g, 1 )
+                if g > 0.99 then g = 1 end
+                newGrow[it.wep] = g
+                it.grow = g
+            end
+            WS.ColLast[i], WS.ColOff[i], WS.ColSig[i], WS.ColGrow[i] = newLast, newOff, newSig, newGrow
+
+            local dyOf, bottomOf = {}, {}
+            for _, it in ipairs( list ) do
+                dyOf[it.wep] = it.dy
+                bottomOf[it.wep] = it.dy + it.hh
+            end
+            for k = #leave, 1, -1 do
+                local lv = leave[k]
+                local clipH
+                if present[lv.wep] then
+                    table.remove( leave, k )
                 else
-                    it.p = LerpFT( 0.2, it.p, 0 )
-                    it.h = (it.lastH or scrH * 0.028) * it.p
-                    if it.p < 0.03 then table.remove( items, k ) end
+                    if lv.after and dyOf[lv.after] then
+                        clipH = math.Clamp( dyOf[lv.after] - lv.ty, 0, lv.hh )
+                    else
+                        lv.life = LerpFT( 0.2, lv.life, 0 )
+                        clipH = lv.hh * lv.life
+                    end
+                    local top = lv.ty
+                    if lv.before and bottomOf[lv.before] then top = math.max( top, bottomOf[lv.before] ) end
+                    if lv.ty + clipH - top < 0.5 then
+                        table.remove( leave, k )
+                    else
+                        lv.clipTop = top
+                        lv.clipBottom = lv.ty + clipH
+                    end
                 end
             end
+            WS.ColLeave[i] = leave
 
-            WS.SlotItems[i] = items
+            for _, lv in ipairs( leave ) do
+                render.SetScissorRect( math.floor( x ), math.floor( lv.clipTop ), math.ceil( x + scrW * 0.1 ), math.ceil( lv.clipBottom ), true )
+                draw.RoundedBox( 0, x, lv.ty, scrW * 0.1, lv.hh, ColorAlpha(color_black, WS.Transparent * 205) )
+                draw.RoundedBox( 0, x, lv.ty + math.max( lv.hh - 2, 0 ), scrW * 0.1, math.min( lv.hh, 2 ), ColorAlpha(color_black, WS.Transparent * 205) )
+                WS.DrawText( lv.name, "HomigradFontSmall", x + scrW * 0.1 / 2, lv.ty + 2.5, color_white, TEXT_ALIGN_CENTER )
+                render.SetScissorRect( 0, 0, 0, 0, false )
+            end
 
-            for _, it in ipairs( items ) do
+            for k, it in ipairs( list ) do
                 local wep = it.wep
-
-                if inCurrent[wep] then
-                    local expand = LerpFT( 0.2, WS.Anim[wep] or 0, SelectedWep == wep and 1 or 0 )
-                    WS.Anim[wep] = expand
-                    local fullH = Lerp( expand, scrH * 0.028, scrH * 0.12 )
-                    it.lastH = fullH
-                    local h = fullH * p * it.p
-
-                    draw.RoundedBox( 0, x, y, scrW * 0.1, h, ColorAlpha(color_black, WS.Transparent * 205) )
-                    draw.RoundedBox( 0, x, y + math.max( h - 2, 0 ), scrW * 0.1, math.min( h, 2 ), ColorAlpha(color_black, WS.Transparent * 205) )
-
-                    if SelectedWep == wep then
-                        surface.SetDrawColor( 155, 0, 0, WS.Transparent * 200 )
-                        surface.SetMaterial( gradient_u )
-                        surface.DrawTexturedRect( x, y, scrW * 0.1, h )
-
-                        surface.SetDrawColor( 255, 0, 0, WS.Transparent * 155 )
-                        surface.DrawOutlinedRect( x, y, scrW * 0.1, h, 2 )
-
-                        if WS.InfoSlot ~= i then
-                            WS.InfoSlot = i
-                            WS.InfoAlpha = 0
-                            WS.InfoSnap = true
-                        end
-                        WS.InfoX = x + scrW * 0.1 + scrW * 0.004
-                        WS.InfoRest = restY + scrH * 0.12 * p * it.p + scrH * 0.004
-                        infoWep = wep
-                        infoCol = i
-
-                        if wep.DrawWeaponSelection then
-                            render.SetScissorRect( math.floor( x ), math.floor( y ), math.ceil( x + scrW * 0.1 ), math.ceil( y + h ), true )
-                            wep:DrawWeaponSelection(
-                                x + 5,
-                                y + scrH * 0.032,
-                                scrW * 0.1 - 10,
-                                h - scrH * 0.028,
-                                WS.Transparent * 255
-                            )
-                            render.SetScissorRect( 0, 0, 0, 0, false )
-                        end
-                    end
-
-                    render.SetScissorRect( math.floor( x ), math.floor( y ), math.ceil( x + scrW * 0.1 ), math.ceil( y + h ), true )
-                    WS.DrawText( it.name, "HomigradFontSmall", x + scrW * 0.1 / 2, y + 2.5, color_white, TEXT_ALIGN_CENTER )
-                    render.SetScissorRect( 0, 0, 0, 0, false )
-
-                    y = y + h
-                    restY = restY + scrH * 0.028 * p * it.p
+                local dy, hh = it.dy, it.hh
+                local clipH = hh
+                local nxt = list[k + 1]
+                if nxt then
+                    if nxt.dy < dy + hh then clipH = math.max( nxt.dy - dy, 0 ) end
                 else
-                    local h = (it.h or scrH * 0.028) * p
-                    DrawCollapsed( x, y, scrW * 0.1, h, it.name or "", baseTransparent * p )
-
-                    y = y + h
-                    restY = restY + h
+                    clipH = hh * it.grow
                 end
+                local sx, sy, sx2, sy2 = math.floor( x ), math.floor( dy ), math.ceil( x + scrW * 0.1 ), math.ceil( dy + clipH )
+
+                render.SetScissorRect( sx, sy, sx2, sy2, true )
+                draw.RoundedBox( 0, x, dy, scrW * 0.1, hh, ColorAlpha(color_black, WS.Transparent * 205) )
+                draw.RoundedBox( 0, x, dy + math.max( hh - 2, 0 ), scrW * 0.1, math.min( hh, 2 ), ColorAlpha(color_black, WS.Transparent * 205) )
+
+                if SelectedWep == wep then
+                    surface.SetDrawColor( 155, 0, 0, WS.Transparent * 200 )
+                    surface.SetMaterial( gradient_u )
+                    surface.DrawTexturedRect( x, dy, scrW * 0.1, hh )
+
+                    surface.SetDrawColor( 255, 0, 0, WS.Transparent * 155 )
+                    surface.DrawOutlinedRect( x, dy, scrW * 0.1, hh, 2 )
+
+                    local cornerY = dy + hh + scrH * 0.004
+                    if WS.InfoSlot ~= i then
+                        WS.InfoSlot = i
+                        WS.InfoAlpha = 0
+                        WS.InfoWep = wep
+                        WS.InfoGlide = 0
+                        WS.InfoDodgeSnap = true
+                    elseif WS.InfoWep ~= wep then
+                        WS.InfoGlide = WS.InfoShown - cornerY
+                        WS.InfoWep = wep
+                    end
+                    WS.InfoGlide = LerpFT( 0.2, WS.InfoGlide, 0 )
+                    WS.InfoX = x + scrW * 0.1 + scrW * 0.004
+                    WS.InfoY = cornerY + WS.InfoGlide
+                    WS.InfoAlpha = LerpFT( 0.2, WS.InfoAlpha, 1 )
+                    infoWep = wep
+                    infoCol = i
+
+                    if wep.DrawWeaponSelection then
+                        wep:DrawWeaponSelection(
+                            x + 5,
+                            dy + scrH * 0.032,
+                            scrW * 0.1 - 10,
+                            hh - scrH * 0.028,
+                            WS.Transparent * 255
+                        )
+                    end
+                end
+
+                WS.DrawText( it.name, "HomigradFontSmall", x + scrW * 0.1 / 2, dy + 2.5, color_white, TEXT_ALIGN_CENTER )
+                render.SetScissorRect( 0, 0, 0, 0, false )
             end
         else
-            for _, it in ipairs( items ) do
-                local h = (it.lastH or scrH * 0.028) * p
-                DrawCollapsed( x, y, scrW * 0.1, h, it.name or "", baseTransparent * p )
+            for _, it in ipairs( WS.SlotNames[i] or {} ) do
+                local h = it.h * p
+                local ty = math.Round( y )
+                DrawCollapsed( x, ty, scrW * 0.1, math.Round( y + h ) - ty, it.name, baseTransparent * p )
                 y = y + h
                 restY = restY + h
             end
@@ -325,25 +383,32 @@ function WS.WeaponSelectorDraw( ply )
     end
 
     if infoWep and infoWep.PrintWeaponInfo then
-        local target = WS.InfoRest
+        local blurbW = 260
+        local top = WS.InfoY
+        local floorTarget = 0
         for _, c in ipairs( cols ) do
             if c.idx ~= infoCol then
-                local overlap = math.min( c.x + scrW * 0.1, WS.InfoX + 260 ) - math.max( c.x, WS.InfoX )
-                local weight = math.Clamp( overlap / (scrW * 0.02), 0, 1 )
+                local overlapX = math.min( c.x + scrW * 0.1, WS.InfoX + blurbW ) - math.max( c.x, WS.InfoX )
+                local weight = math.Clamp( overlapX / (scrW * 0.02), 0, 1 )
                 weight = weight * weight * (3 - 2 * weight)
-                target = math.max( target, weight * (c.restBottom + scrH * 0.008) )
+                floorTarget = math.max( floorTarget, weight * (c.restBottom + scrH * 0.008) )
             end
         end
 
-        if WS.InfoSnap then
-            WS.InfoY = target
-            WS.InfoSnap = false
-        else
-            WS.InfoY = LerpFT( 0.22, WS.InfoY, target )
+        local fresh = WS.InfoDodgeSnap
+        if WS.InfoDodgeSnap then
+            WS.InfoFloor = floorTarget
+            WS.InfoDodgeSnap = false
         end
-        WS.InfoAlpha = LerpFT( 0.2, WS.InfoAlpha, 1 )
+        WS.InfoFloor = LerpFT( 0.2, WS.InfoFloor, floorTarget )
 
+        WS.InfoY = math.max( top, WS.InfoFloor )
+        if not fresh and top < WS.InfoFloor then
+            WS.InfoY = LerpFT( 0.2, WS.InfoShown, WS.InfoY )
+        end
+        WS.InfoShown = WS.InfoY
         infoWep:PrintWeaponInfo( WS.InfoX, WS.InfoY, WS.Transparent * 255 * WS.InfoAlpha )
+        WS.InfoY = top
     end
 end
 
@@ -444,7 +509,7 @@ function WS.ChangeSelectionWep( ply, key )
         surface.PlaySound("arc9_eft_shared/weapon_generic_rifle_spin"..math.random(10)..".ogg")
         if iPos then
             iPos = iPos - 1
-            if LastSelected ~= iPos then
+            if LastSelected ~= iPos then 
                 WS.SelectedSlotPos = -1
             end
             WS.SelectedSlotPos = (Weapons[iPos] and LastSelected == iPos and WS.SelectedSlotPos + 1 > #Weapons[iPos] and 0 or math.min( WS.SelectedSlotPos + 1, #Weapons[iPos] )) or 0
@@ -481,20 +546,20 @@ function WS.SetActuallyWeapon( ply, cmd )
     if not IsValid( ply ) or not ply:Alive() or GetGlobalBool("RadialInventory", false) then return end
     if (cmd:KeyDown( IN_ATTACK ) or cmd:KeyDown( IN_ATTACK2 )) and WS.Show > CurTime() then
 
-        if WS.Selected and WS.Selected > CurTime() then
-            cmd:RemoveKey(IN_ATTACK)
-            cmd:RemoveKey(IN_ATTACK2)
+        if WS.Selected and WS.Selected > CurTime() then 
+            cmd:RemoveKey(IN_ATTACK) 
+            cmd:RemoveKey(IN_ATTACK2) 
         else
             cmd:RemoveKey(IN_ATTACK)
-            cmd:RemoveKey(IN_ATTACK2)
+            cmd:RemoveKey(IN_ATTACK2) 
             --print(WS.GetSelectedWeapon())
-
+            
             if IsValid(WS.GetSelectedWeapon()) then
                 WS.LastInv = WS.LastInv ~= ply:GetActiveWeapon() and WS.LastInv or ply:GetActiveWeapon()
                 input.SelectWeapon( WS.GetSelectedWeapon() )
             end
             cmd:RemoveKey(IN_ATTACK)
-            cmd:RemoveKey(IN_ATTACK2)
+            cmd:RemoveKey(IN_ATTACK2) 
 
             WS.LastSelectedSlot = WS.SelectedSlot
             WS.LastSelectedSlotPos = WS.SelectedSlotPos
