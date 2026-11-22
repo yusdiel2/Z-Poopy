@@ -175,7 +175,7 @@ function WS.WeaponSelectorDraw( ply )
         local space = WS.SlotPres[i] or has
         local show = WS.SlotVis[i] or has
 
-        local spaceTarget = has == 1 and 1 or (show <= 0 and 0 or space)
+        local spaceTarget = has == 1 and 1 or (show <= 0.35 and 0 or space)
         space = LerpFT( 0.2, space, spaceTarget )
         if math.abs( space - spaceTarget ) < 0.01 then space = spaceTarget end
 
