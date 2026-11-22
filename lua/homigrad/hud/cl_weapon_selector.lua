@@ -21,11 +21,6 @@ WS.Anim = WS.Anim or setmetatable({}, { __mode = "k" })
 WS.Seen = WS.Seen or setmetatable({}, { __mode = "k" })
 WS.SlotPres = {}
 WS.SlotNames = {}
-WS.ColLast = {}
-WS.ColOff = {}
-WS.ColSig = {}
-WS.ColLeave = {}
-WS.ColGrow = {}
 
 WS.InfoSlot = nil
 WS.InfoWep = nil
@@ -98,11 +93,6 @@ local function ResetState()
     WS.InfoFloor = 0
     WS.SlotPres = {}
     WS.SlotNames = {}
-    WS.ColLast = {}
-    WS.ColOff = {}
-    WS.ColSig = {}
-    WS.ColLeave = {}
-    WS.ColGrow = {}
     WS.TrackedWep = nil
 end
 
@@ -183,8 +173,6 @@ function WS.WeaponSelectorDraw( ply )
         local p = pres[i]
         if p <= 0 then
             WS.SlotNames[i] = nil
-            WS.ColLast[i], WS.ColOff[i], WS.ColSig[i] = nil, nil, nil
-            WS.ColLeave[i], WS.ColGrow[i] = nil, nil
             continue
         end
 
@@ -225,104 +213,10 @@ function WS.WeaponSelectorDraw( ply )
             end
             WS.SlotNames[i] = kept
 
-            local lastT = WS.ColLast[i] or {}
-            local offs = WS.ColOff[i] or {}
-            local sig = WS.ColSig[i] or {}
-            local leave = WS.ColLeave[i] or {}
-            local grow = WS.ColGrow[i] or {}
-            local present = {}
-            for _, it in ipairs( list ) do present[it.wep] = true end
-
-            local changed = #sig ~= #list
-            if not changed then
-                for k, it in ipairs( list ) do
-                    if sig[k] ~= it.wep then changed = true break end
-                end
-            end
-
-            if changed then
-                for k, w in ipairs( sig ) do
-                    if not present[w] and lastT[w] then
-                        local after, before
-                        for n = k + 1, #sig do
-                            if present[sig[n]] then after = sig[n] break end
-                        end
-                        for n = k - 1, 1, -1 do
-                            if present[sig[n]] then before = sig[n] break end
-                        end
-                        leave[#leave + 1] = { wep = w, name = lastT[w].name, ty = lastT[w].ty, hh = lastT[w].hh, life = 1, after = after, before = before }
-                    end
-                end
-            end
-
-            local newLast, newOff, newSig, newGrow = {}, {}, {}, {}
-            for k, it in ipairs( list ) do
-                local o = offs[it.wep] or 0
-                if changed and lastT[it.wep] then o = o + (lastT[it.wep].ty - it.ty) end
-                o = LerpFT( 0.2, o, 0 )
-                if math.abs( o ) < 0.3 then o = 0 end
-                it.dy = it.ty + o
-                newOff[it.wep] = o
-                newLast[it.wep] = { ty = it.ty, hh = it.hh, name = it.name }
-                newSig[k] = it.wep
-
-                local g = grow[it.wep]
-                if g == nil then g = (#sig > 0 and not lastT[it.wep]) and 0 or 1 end
-                g = LerpFT( 0.2, g, 1 )
-                if g > 0.99 then g = 1 end
-                newGrow[it.wep] = g
-                it.grow = g
-            end
-            WS.ColLast[i], WS.ColOff[i], WS.ColSig[i], WS.ColGrow[i] = newLast, newOff, newSig, newGrow
-
-            local dyOf, bottomOf = {}, {}
-            for _, it in ipairs( list ) do
-                dyOf[it.wep] = it.dy
-                bottomOf[it.wep] = it.dy + it.hh
-            end
-            for k = #leave, 1, -1 do
-                local lv = leave[k]
-                local clipH
-                if present[lv.wep] then
-                    table.remove( leave, k )
-                else
-                    if lv.after and dyOf[lv.after] then
-                        clipH = math.Clamp( dyOf[lv.after] - lv.ty, 0, lv.hh )
-                    else
-                        lv.life = LerpFT( 0.2, lv.life, 0 )
-                        clipH = lv.hh * lv.life
-                    end
-                    local top = lv.ty
-                    if lv.before and bottomOf[lv.before] then top = math.max( top, bottomOf[lv.before] ) end
-                    if lv.ty + clipH - top < 0.5 then
-                        table.remove( leave, k )
-                    else
-                        lv.clipTop = top
-                        lv.clipBottom = lv.ty + clipH
-                    end
-                end
-            end
-            WS.ColLeave[i] = leave
-
-            for _, lv in ipairs( leave ) do
-                render.SetScissorRect( math.floor( x ), math.floor( lv.clipTop ), math.ceil( x + scrW * 0.1 ), math.ceil( lv.clipBottom ), true )
-                draw.RoundedBox( 0, x, lv.ty, scrW * 0.1, lv.hh, ColorAlpha(color_black, WS.Transparent * 205) )
-                draw.RoundedBox( 0, x, lv.ty + math.max( lv.hh - 2, 0 ), scrW * 0.1, math.min( lv.hh, 2 ), ColorAlpha(color_black, WS.Transparent * 205) )
-                WS.DrawText( lv.name, "HomigradFontSmall", x + scrW * 0.1 / 2, lv.ty + 2.5, color_white, TEXT_ALIGN_CENTER )
-                render.SetScissorRect( 0, 0, 0, 0, false )
-            end
-
             for k, it in ipairs( list ) do
                 local wep = it.wep
-                local dy, hh = it.dy, it.hh
-                local clipH = hh
-                local nxt = list[k + 1]
-                if nxt then
-                    if nxt.dy < dy + hh then clipH = math.max( nxt.dy - dy, 0 ) end
-                else
-                    clipH = hh * it.grow
-                end
-                local sx, sy, sx2, sy2 = math.floor( x ), math.floor( dy ), math.ceil( x + scrW * 0.1 ), math.ceil( dy + clipH )
+                local dy, hh = it.ty, it.hh
+                local sx, sy, sx2, sy2 = math.floor( x ), math.floor( dy ), math.ceil( x + scrW * 0.1 ), math.ceil( dy + hh )
 
                 render.SetScissorRect( sx, sy, sx2, sy2, true )
                 draw.RoundedBox( 0, x, dy, scrW * 0.1, hh, ColorAlpha(color_black, WS.Transparent * 205) )
@@ -346,8 +240,10 @@ function WS.WeaponSelectorDraw( ply )
                     elseif WS.InfoWep ~= wep then
                         WS.InfoGlide = WS.InfoShown - cornerY
                         WS.InfoWep = wep
+                        WS.InfoStatic = false
                     end
                     WS.InfoGlide = LerpFT( 0.2, WS.InfoGlide, 0 )
+                    WS.InfoRest = it.restAbove + scrH * 0.12 * p + scrH * 0.004
                     WS.InfoX = x + scrW * 0.1 + scrW * 0.004
                     WS.InfoY = cornerY + WS.InfoGlide
                     WS.InfoAlpha = LerpFT( 0.2, WS.InfoAlpha, 1 )
@@ -402,9 +298,15 @@ function WS.WeaponSelectorDraw( ply )
         end
         WS.InfoFloor = LerpFT( 0.2, WS.InfoFloor, floorTarget )
 
-        WS.InfoY = math.max( top, WS.InfoFloor )
-        if not fresh and top < WS.InfoFloor then
-            WS.InfoY = LerpFT( 0.2, WS.InfoShown, WS.InfoY )
+        if fresh then WS.InfoStatic = true end
+        if WS.InfoStatic and top < WS.InfoRest - 0.5 then
+            WS.InfoY = math.max( WS.InfoRest, WS.InfoFloor )
+        else
+            WS.InfoStatic = false
+            WS.InfoY = math.max( top, WS.InfoFloor )
+            if not fresh and top < WS.InfoFloor then
+                WS.InfoY = LerpFT( 0.2, WS.InfoShown, WS.InfoY )
+            end
         end
         WS.InfoShown = WS.InfoY
         infoWep:PrintWeaponInfo( WS.InfoX, WS.InfoY, WS.Transparent * 255 * WS.InfoAlpha )
